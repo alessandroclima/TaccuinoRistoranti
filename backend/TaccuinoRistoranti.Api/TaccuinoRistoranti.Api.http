@@ -1,0 +1,6 @@
+@TaccuinoRistoranti.Api_HostAddress = http://localhost:5285
+
+GET {{TaccuinoRistoranti.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

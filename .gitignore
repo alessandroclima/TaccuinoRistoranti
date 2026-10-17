@@ -1,0 +1,26 @@
+# .NET / backend
+backend/**/bin/
+backend/**/obj/
+backend/publish/
+backend/**/Properties/PublishProfiles/
+backend/**/Properties/ServiceDependencies/
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
+
+# Flutter / mobile
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/pubspec.lock
+
+# IDE / OS
+.vs/
+.idea/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
