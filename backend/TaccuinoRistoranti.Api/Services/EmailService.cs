@@ -38,7 +38,8 @@ public class EmailService(IOptions<EmailOptions> options, ILogger<EmailService> 
         }
 
         var encodedToken = Uri.EscapeDataString(resetToken);
-        var resetUrl = $"{_options.FrontendBaseUrl.TrimEnd('/')}/reset-password?token={encodedToken}";
+        // Use root querystring so static SPA hosting (e.g. GitHub Pages) does not 404 on deep links.
+        var resetUrl = $"{_options.FrontendBaseUrl.TrimEnd('/')}/?token={encodedToken}";
 
         var subject = "Reset Password - Taccuino Ristoranti";
         var body = $"""
