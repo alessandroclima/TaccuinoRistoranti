@@ -10,6 +10,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -64,6 +65,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             entity.HasOne(x => x.User)
                 .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.Property(x => x.Token).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.IpAddress).HasMaxLength(64);
+            entity.HasIndex(x => x.Token).IsUnique();
+            entity.HasIndex(x => new { x.UserId, x.ExpiresAtUtc });
+
+            entity.HasOne(x => x.User)
+                .WithMany(x => x.PasswordResetTokens)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

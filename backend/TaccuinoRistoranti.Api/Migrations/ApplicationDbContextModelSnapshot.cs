@@ -268,6 +268,47 @@ namespace TaccuinoRistoranti.Api.Migrations
                     b.ToTable("Meals");
                 });
 
+            modelBuilder.Entity("TaccuinoRistoranti.Api.Models.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("UsedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "ExpiresAtUtc");
+
+                    b.ToTable("PasswordResetTokens");
+                });
+
             modelBuilder.Entity("TaccuinoRistoranti.Api.Models.Rating", b =>
                 {
                     b.Property<Guid>("Id")
@@ -425,6 +466,17 @@ namespace TaccuinoRistoranti.Api.Migrations
                     b.Navigation("CreatedByUser");
                 });
 
+            modelBuilder.Entity("TaccuinoRistoranti.Api.Models.PasswordResetToken", b =>
+                {
+                    b.HasOne("TaccuinoRistoranti.Api.Models.ApplicationUser", "User")
+                        .WithMany("PasswordResetTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("TaccuinoRistoranti.Api.Models.Rating", b =>
                 {
                     b.HasOne("TaccuinoRistoranti.Api.Models.Meal", "Meal")
@@ -453,6 +505,11 @@ namespace TaccuinoRistoranti.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TaccuinoRistoranti.Api.Models.ApplicationUser", b =>
+                {
+                    b.Navigation("PasswordResetTokens");
                 });
 
             modelBuilder.Entity("TaccuinoRistoranti.Api.Models.Meal", b =>
