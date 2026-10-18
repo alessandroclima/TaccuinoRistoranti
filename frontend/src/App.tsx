@@ -4,7 +4,7 @@ import type { FormEvent } from "react";
 import "./App.css";
 import fallbackLogo from "./assets/hero.png";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgotPassword" | "resetPassword";
 type MealType = 0 | 1;
 
 type RatingInput = {
@@ -138,6 +138,9 @@ function App() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [meals, setMeals] = useState<Meal[]>([]);
   const [joinCode, setJoinCode] = useState("");
@@ -152,6 +155,7 @@ function App() {
   const [rating, setRating] = useState<RatingInput>(emptyRating);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [infoMessage, setInfoMessage] = useState("");
 
   const accessExpiryDate = useMemo(
     () => (accessExpiresAt ? new Date(accessExpiresAt) : null),
@@ -256,6 +260,48 @@ function App() {
     void loadMeals();
   }, [token]);
 
+  useEffect(() => {
+    if (token) {
+      return;
+    }
+
+    const queryToken = new URLSearchParams(window.location.search).get("token");
+    if (queryToken) {
+      setAuthMode("resetPassword");
+      setResetToken(queryToken);
+    }
+  }, [token]);
+
+  const extractApiError = (unknownError: unknown, fallback: string) => {
+    if (!axios.isAxiosError(unknownError)) {
+      return fallback;
+    }
+
+    const responseData = unknownError.response?.data;
+    if (typeof responseData === "string") {
+      return responseData;
+    }
+
+    if (responseData && typeof responseData === "object") {
+      if ("message" in responseData) {
+        const message = (responseData as { message?: unknown }).message;
+        if (typeof message === "string" && message.trim().length > 0) {
+          return message;
+        }
+      }
+
+      const values = Object.values(responseData as Record<string, unknown>);
+      if (values.length > 0) {
+        return values
+          .flatMap((value) => (Array.isArray(value) ? value : [value]))
+          .map(String)
+          .join(" ");
+      }
+    }
+
+    return fallback;
+  };
+
   const loadMeals = async () => {
     const authHeader = await getAuthHeader();
     if (!authHeader) {
@@ -277,6 +323,7 @@ function App() {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setInfoMessage("");
 
     try {
       const endpoint =
@@ -289,31 +336,77 @@ function App() {
       setEmail("");
       setPassword("");
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const responseData = error.response?.data;
-
-        if (typeof responseData === "string") {
-          setError(responseData);
-        } else if (Array.isArray(responseData)) {
-          setError(responseData.join(" "));
-        } else if (responseData && typeof responseData === "object") {
-          const values = Object.values(responseData as Record<string, unknown>);
-          setError(
-            values
-              .flatMap((value) => (Array.isArray(value) ? value : [value]))
-              .map(String)
-              .join(" "),
-          );
-        } else {
-          setError(
-            "Autenticazione fallita. Verifica credenziali o password minima.",
-          );
-        }
-      } else {
-        setError(
+      setError(
+        extractApiError(
+          error,
           "Autenticazione fallita. Verifica credenziali o password minima.",
-        );
-      }
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestPasswordReset = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setInfoMessage("");
+
+    try {
+      const response = await api.post<{ message: string }>(
+        "/api/auth/forgot-password",
+        { email },
+      );
+      setInfoMessage(response.data.message);
+      setAuthMode("login");
+    } catch (error) {
+      setError(
+        extractApiError(
+          error,
+          "Impossibile inviare la richiesta di recupero password.",
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitResetPassword = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (newPassword !== confirmNewPassword) {
+      setError("Le password non coincidono.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setInfoMessage("");
+
+    try {
+      const response = await api.post<{ message: string }>(
+        "/api/auth/reset-password",
+        {
+          token: resetToken,
+          newPassword,
+        },
+      );
+
+      setInfoMessage(response.data.message);
+      setAuthMode("login");
+      setPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setResetToken("");
+
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.delete("token");
+      window.history.replaceState({}, "", currentUrl.toString());
+    } catch (error) {
+      setError(
+        extractApiError(error, "Impossibile completare il cambio password."),
+      );
     } finally {
       setBusy(false);
     }
@@ -471,47 +564,141 @@ function App() {
 
       {!token ? (
         <section className="card">
-          <h2>{authMode === "login" ? "Accedi" : "Registrati"}</h2>
-          <form onSubmit={handleAuth} className="grid">
-            <label>
-              Email
-              <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                required
-              />
-            </label>
-
-            <label>
-              Password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                required
-              />
-            </label>
-
-            <button type="submit" disabled={busy}>
-              {busy
-                ? "Attendi..."
-                : authMode === "login"
-                  ? "Login"
-                  : "Crea account"}
-            </button>
-          </form>
-
-          <button
-            className="link"
-            onClick={() =>
-              setAuthMode((mode) => (mode === "login" ? "register" : "login"))
-            }
-          >
+          <h2>
             {authMode === "login"
-              ? "Non hai un account? Registrati"
-              : "Hai gia un account? Effettua login"}
-          </button>
+              ? "Accedi"
+              : authMode === "register"
+                ? "Registrati"
+                : authMode === "forgotPassword"
+                  ? "Recupera password"
+                  : "Imposta nuova password"}
+          </h2>
+
+          {authMode === "login" || authMode === "register" ? (
+            <form onSubmit={handleAuth} className="grid">
+              <label>
+                Email
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  required
+                />
+              </label>
+
+              <label>
+                Password
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  type="password"
+                  required
+                />
+              </label>
+
+              <button type="submit" disabled={busy}>
+                {busy
+                  ? "Attendi..."
+                  : authMode === "login"
+                    ? "Login"
+                    : "Crea account"}
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "forgotPassword" ? (
+            <form onSubmit={requestPasswordReset} className="grid">
+              <label>
+                Email registrata
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  required
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                {busy ? "Invio in corso..." : "Invia link di recupero"}
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "resetPassword" ? (
+            <form onSubmit={submitResetPassword} className="grid">
+              <label>
+                Token di reset
+                <input
+                  value={resetToken}
+                  onChange={(event) => setResetToken(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Nuova password
+                <input
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  type="password"
+                  required
+                />
+              </label>
+              <label>
+                Conferma nuova password
+                <input
+                  value={confirmNewPassword}
+                  onChange={(event) =>
+                    setConfirmNewPassword(event.target.value)
+                  }
+                  type="password"
+                  required
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                {busy ? "Aggiornamento..." : "Cambia password"}
+              </button>
+            </form>
+          ) : null}
+
+          <div className="auth-links">
+            {authMode !== "login" ? (
+              <button className="link" onClick={() => setAuthMode("login")}>
+                Torna al login
+              </button>
+            ) : null}
+
+            {authMode === "login" ? (
+              <button
+                className="link"
+                onClick={() => setAuthMode("register")}
+              >
+                Non hai un account? Registrati
+              </button>
+            ) : null}
+
+            {authMode === "register" ? (
+              <button className="link" onClick={() => setAuthMode("login")}>
+                Hai gia un account? Effettua login
+              </button>
+            ) : null}
+
+            {authMode === "login" ? (
+              <button
+                className="link"
+                onClick={() => setAuthMode("forgotPassword")}
+              >
+                Hai dimenticato la password?
+              </button>
+            ) : null}
+
+            {authMode === "forgotPassword" ? (
+              <button
+                className="link"
+                onClick={() => setAuthMode("resetPassword")}
+              >
+                Hai gia il token? Cambia password
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : (
         <>
@@ -740,6 +927,7 @@ function App() {
       )}
 
       {error ? <p className="error">{error}</p> : null}
+      {infoMessage ? <p className="info">{infoMessage}</p> : null}
     </div>
   );
 }

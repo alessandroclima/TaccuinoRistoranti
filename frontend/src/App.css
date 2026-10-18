@@ -144,6 +144,12 @@ button.link {
   padding: 0;
 }
 
+.auth-links {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+
 .join-row {
   display: flex;
   gap: 0.7rem;
@@ -224,6 +230,11 @@ button.link {
 
 .error {
   color: #b42e2e;
+  font-weight: 700;
+}
+
+.info {
+  color: #1d6f35;
   font-weight: 700;
 }
 

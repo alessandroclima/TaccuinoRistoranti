@@ -67,19 +67,24 @@ class _HomePageState extends State<HomePage> {
 
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final forgotEmailController = TextEditingController();
+  final resetTokenController = TextEditingController();
+  final newPasswordController = TextEditingController();
+  final confirmNewPasswordController = TextEditingController();
   final nameController = TextEditingController();
   final streetController = TextEditingController();
   final cityController = TextEditingController();
   final notesController = TextEditingController();
   final joinCodeController = TextEditingController();
 
-  bool isLogin = true;
+  AuthView authView = AuthView.login;
   bool busy = false;
   String? token;
   String? refreshToken;
   DateTime? accessExpiresAt;
   DateTime? refreshExpiresAt;
   String error = '';
+  String info = '';
   List<dynamic> meals = [];
   Map<String, int> rating = {
     'location': 0,
@@ -93,7 +98,32 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _initResetTokenFromUrl();
     _loadSession();
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    forgotEmailController.dispose();
+    resetTokenController.dispose();
+    newPasswordController.dispose();
+    confirmNewPasswordController.dispose();
+    nameController.dispose();
+    streetController.dispose();
+    cityController.dispose();
+    notesController.dispose();
+    joinCodeController.dispose();
+    super.dispose();
+  }
+
+  void _initResetTokenFromUrl() {
+    final tokenFromQuery = Uri.base.queryParameters['token'];
+    if (tokenFromQuery != null && tokenFromQuery.isNotEmpty) {
+      resetTokenController.text = tokenFromQuery;
+      authView = AuthView.resetPassword;
+    }
   }
 
   bool _isExpired(DateTime? dt) {
@@ -258,9 +288,12 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       busy = true;
       error = '';
+      info = '';
     });
 
-    final path = isLogin ? '/api/auth/login' : '/api/auth/register';
+    final path = authView == AuthView.login
+        ? '/api/auth/login'
+        : '/api/auth/register';
     final response = await http.post(
       Uri.parse('$baseUrl$path'),
       headers: {'Content-Type': 'application/json'},
@@ -285,13 +318,128 @@ class _HomePageState extends State<HomePage> {
       await _loadMeals();
     } else {
       setState(() {
-        error = 'Autenticazione fallita';
+        error = _extractErrorMessage(
+          response,
+          fallback: 'Autenticazione fallita',
+        );
       });
     }
 
     setState(() {
       busy = false;
     });
+  }
+
+  Future<void> _requestPasswordReset() async {
+    setState(() {
+      busy = true;
+      error = '';
+      info = '';
+    });
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/forgot-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': forgotEmailController.text.trim()}),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      setState(() {
+        info = (data['message'] as String?) ??
+            'Se l\'email e registrata, riceverai un link di recupero.';
+        authView = AuthView.login;
+      });
+    } else {
+      setState(() {
+        error = _extractErrorMessage(
+          response,
+          fallback: 'Richiesta recupero password non riuscita',
+        );
+      });
+    }
+
+    setState(() {
+      busy = false;
+    });
+  }
+
+  Future<void> _resetPassword() async {
+    final newPassword = newPasswordController.text;
+    final confirmPassword = confirmNewPasswordController.text;
+
+    if (newPassword != confirmPassword) {
+      setState(() {
+        error = 'Le password non coincidono';
+      });
+      return;
+    }
+
+    setState(() {
+      busy = true;
+      error = '';
+      info = '';
+    });
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/reset-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'token': resetTokenController.text.trim(),
+        'newPassword': newPassword,
+      }),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      setState(() {
+        info = (data['message'] as String?) ??
+            'Password aggiornata correttamente.';
+        authView = AuthView.login;
+        resetTokenController.clear();
+        newPasswordController.clear();
+        confirmNewPasswordController.clear();
+      });
+    } else {
+      setState(() {
+        error = _extractErrorMessage(
+          response,
+          fallback: 'Cambio password non riuscito',
+        );
+      });
+    }
+
+    setState(() {
+      busy = false;
+    });
+  }
+
+  String _extractErrorMessage(http.Response response, {required String fallback}) {
+    try {
+      final payload = jsonDecode(response.body);
+      if (payload is String && payload.isNotEmpty) {
+        return payload;
+      }
+
+      if (payload is Map<String, dynamic>) {
+        final message = payload['message'];
+        if (message is String && message.isNotEmpty) {
+          return message;
+        }
+
+        if (payload.isNotEmpty) {
+          return payload.values.map((v) => v.toString()).join(' ');
+        }
+      }
+
+      if (payload is List) {
+        return payload.map((v) => v.toString()).join(' ');
+      }
+    } catch (_) {
+      // Ignore parsing issues and fallback.
+    }
+
+    return fallback;
   }
 
   Future<void> _logout() async {
@@ -582,32 +730,103 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildAuth() {
+    final isLogin = authView == AuthView.login;
+    final isRegister = authView == AuthView.register;
+    final isForgot = authView == AuthView.forgotPassword;
+    final isReset = authView == AuthView.resetPassword;
+
     return ListView(
       children: [
         Text(
-          isLogin ? 'Login' : 'Registrazione',
+          isLogin
+              ? 'Login'
+              : isRegister
+                  ? 'Registrazione'
+                  : isForgot
+                      ? 'Recupera password'
+                      : 'Imposta nuova password',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: emailController,
-          decoration: const InputDecoration(labelText: 'Email'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Password'),
-        ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: busy ? null : _authenticate,
-          child: Text(isLogin ? 'Accedi' : 'Registrati'),
-        ),
-        TextButton(
-          onPressed: () => setState(() => isLogin = !isLogin),
-          child: Text(isLogin ? 'Crea account' : 'Ho gia un account'),
-        ),
+        if (isLogin || isRegister) ...[
+          TextField(
+            controller: emailController,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Password'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: busy ? null : _authenticate,
+            child: Text(isLogin ? 'Accedi' : 'Registrati'),
+          ),
+        ],
+        if (isForgot) ...[
+          TextField(
+            controller: forgotEmailController,
+            decoration: const InputDecoration(labelText: 'Email registrata'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: busy ? null : _requestPasswordReset,
+            child: const Text('Invia link di recupero'),
+          ),
+        ],
+        if (isReset) ...[
+          TextField(
+            controller: resetTokenController,
+            decoration: const InputDecoration(labelText: 'Token di reset'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: newPasswordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Nuova password'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: confirmNewPasswordController,
+            obscureText: true,
+            decoration:
+                const InputDecoration(labelText: 'Conferma nuova password'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: busy ? null : _resetPassword,
+            child: const Text('Cambia password'),
+          ),
+        ],
+        if (!isLogin)
+          TextButton(
+            onPressed: () => setState(() => authView = AuthView.login),
+            child: const Text('Torna al login'),
+          ),
+        if (isLogin)
+          TextButton(
+            onPressed: () => setState(() => authView = AuthView.register),
+            child: const Text('Crea account'),
+          ),
+        if (isRegister)
+          TextButton(
+            onPressed: () => setState(() => authView = AuthView.login),
+            child: const Text('Ho gia un account'),
+          ),
+        if (isLogin)
+          TextButton(
+            onPressed: () => setState(() => authView = AuthView.forgotPassword),
+            child: const Text('Hai dimenticato la password?'),
+          ),
+        if (isForgot)
+          TextButton(
+            onPressed: () => setState(() => authView = AuthView.resetPassword),
+            child: const Text('Hai gia il token? Cambia password'),
+          ),
+        if (info.isNotEmpty)
+          Text(info, style: const TextStyle(color: Color(0xFF1D6F35))),
         if (error.isNotEmpty)
           Text(error, style: const TextStyle(color: Colors.red)),
       ],
@@ -811,3 +1030,5 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
+enum AuthView { login, register, forgotPassword, resetPassword }
