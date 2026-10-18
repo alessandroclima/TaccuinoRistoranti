@@ -667,10 +667,7 @@ function App() {
             ) : null}
 
             {authMode === "login" ? (
-              <button
-                className="link"
-                onClick={() => setAuthMode("register")}
-              >
+              <button className="link" onClick={() => setAuthMode("register")}>
                 Non hai un account? Registrati
               </button>
             ) : null}

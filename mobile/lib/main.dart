@@ -346,7 +346,8 @@ class _HomePageState extends State<HomePage> {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       setState(() {
-        info = (data['message'] as String?) ??
+        info =
+            (data['message'] as String?) ??
             'Se l\'email e registrata, riceverai un link di recupero.';
         authView = AuthView.login;
       });
@@ -393,7 +394,8 @@ class _HomePageState extends State<HomePage> {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       setState(() {
-        info = (data['message'] as String?) ??
+        info =
+            (data['message'] as String?) ??
             'Password aggiornata correttamente.';
         authView = AuthView.login;
         resetTokenController.clear();
@@ -414,7 +416,10 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  String _extractErrorMessage(http.Response response, {required String fallback}) {
+  String _extractErrorMessage(
+    http.Response response, {
+    required String fallback,
+  }) {
     try {
       final payload = jsonDecode(response.body);
       if (payload is String && payload.isNotEmpty) {
@@ -741,10 +746,10 @@ class _HomePageState extends State<HomePage> {
           isLogin
               ? 'Login'
               : isRegister
-                  ? 'Registrazione'
-                  : isForgot
-                      ? 'Recupera password'
-                      : 'Imposta nuova password',
+              ? 'Registrazione'
+              : isForgot
+              ? 'Recupera password'
+              : 'Imposta nuova password',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 12),
@@ -791,8 +796,9 @@ class _HomePageState extends State<HomePage> {
           TextField(
             controller: confirmNewPasswordController,
             obscureText: true,
-            decoration:
-                const InputDecoration(labelText: 'Conferma nuova password'),
+            decoration: const InputDecoration(
+              labelText: 'Conferma nuova password',
+            ),
           ),
           const SizedBox(height: 12),
           FilledButton(
