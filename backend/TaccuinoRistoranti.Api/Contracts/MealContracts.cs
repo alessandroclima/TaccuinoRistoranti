@@ -4,12 +4,16 @@ namespace TaccuinoRistoranti.Api.Contracts;
 
 public record CreateMealRequest(
     string Name,
+    string ProposedBy,
     string Street,
     string City,
     string? Notes,
-    MealType MealType);
+    MealType MealType,
+    bool VotesSecret);
 
 public record JoinMealRequest(string ShareCode);
+
+public record UpdateVotesSecretRequest(bool VotesSecret);
 
 public record SubmitRatingRequest(
     int Location,
@@ -35,7 +39,6 @@ public record ParticipantScoreResponse(
     int Service,
     int Bill,
     int Special,
-    double Overall,
     int Position,
     DateTime CreatedAtUtc);
 
@@ -50,6 +53,7 @@ public record UserRatingResponse(
 public record MealResponse(
     Guid Id,
     string Name,
+    string ProposedBy,
     string Street,
     string City,
     string? Notes,
@@ -57,6 +61,8 @@ public record MealResponse(
     string ShareCode,
     DateTime CreatedAtUtc,
     string CreatedBy,
+    bool VotesSecret,
+    bool CanToggleVotesSecret,
     bool HasUserRated,
     UserRatingResponse? UserRating,
     RatingSummaryResponse Summary,

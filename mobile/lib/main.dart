@@ -44,6 +44,20 @@ class _HomePageState extends State<HomePage> {
     'bill': 'Conto',
     'special': 'Special',
   };
+  static const _emptyRatingValues = {
+    'location': 0,
+    'menu': 0,
+    'service': 0,
+    'bill': 0,
+    'special': 0,
+  };
+  static const _emptyRatingTouched = {
+    'location': false,
+    'menu': false,
+    'service': false,
+    'bill': false,
+    'special': false,
+  };
 
   static String _resolveBaseUrl() {
     if (_apiBaseUrlFromEnv.isNotEmpty) {
@@ -72,6 +86,7 @@ class _HomePageState extends State<HomePage> {
   final newPasswordController = TextEditingController();
   final confirmNewPasswordController = TextEditingController();
   final nameController = TextEditingController();
+  final proposedByController = TextEditingController();
   final streetController = TextEditingController();
   final cityController = TextEditingController();
   final notesController = TextEditingController();
@@ -85,14 +100,10 @@ class _HomePageState extends State<HomePage> {
   DateTime? refreshExpiresAt;
   String error = '';
   String info = '';
+  bool createVotesSecret = false;
   List<dynamic> meals = [];
-  Map<String, int> rating = {
-    'location': 0,
-    'menu': 0,
-    'service': 0,
-    'bill': 0,
-    'special': 0,
-  };
+  Map<String, int> rating = Map<String, int>.from(_emptyRatingValues);
+  Map<String, bool> ratingTouched = Map<String, bool>.from(_emptyRatingTouched);
   Map<String, dynamic>? selectedMeal;
 
   @override
@@ -111,6 +122,7 @@ class _HomePageState extends State<HomePage> {
     newPasswordController.dispose();
     confirmNewPasswordController.dispose();
     nameController.dispose();
+    proposedByController.dispose();
     streetController.dispose();
     cityController.dispose();
     notesController.dispose();
@@ -199,6 +211,8 @@ class _HomePageState extends State<HomePage> {
       refreshExpiresAt = null;
       meals = [];
       selectedMeal = null;
+      rating = Map<String, int>.from(_emptyRatingValues);
+      ratingTouched = Map<String, bool>.from(_emptyRatingTouched);
     });
   }
 
@@ -484,6 +498,7 @@ class _HomePageState extends State<HomePage> {
               );
           selectedMeal = updatedSelection;
           rating = _ratingFromMeal(updatedSelection);
+          ratingTouched = _ratingTouchedFromMeal(updatedSelection);
         }
       });
     } else {
@@ -494,6 +509,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _createMeal() async {
+    if (proposedByController.text.trim().isEmpty) {
+      setState(() {
+        error = 'Il campo Proposto da e obbligatorio';
+      });
+      return;
+    }
+
     setState(() {
       busy = true;
       error = '';
@@ -505,10 +527,12 @@ class _HomePageState extends State<HomePage> {
         headers: headers,
         body: jsonEncode({
           'name': nameController.text,
+          'proposedBy': proposedByController.text,
           'street': streetController.text,
           'city': cityController.text,
           'notes': notesController.text,
           'mealType': 0,
+          'votesSecret': createVotesSecret,
         }),
       );
     });
@@ -523,6 +547,8 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         selectedMeal = payload;
         rating = _ratingFromMeal(payload);
+        ratingTouched = _ratingTouchedFromMeal(payload);
+        createVotesSecret = false;
       });
       await _loadMeals();
     } else {
@@ -562,6 +588,7 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         selectedMeal = payload;
         rating = _ratingFromMeal(payload);
+        ratingTouched = _ratingTouchedFromMeal(payload);
       });
       await _loadMeals();
     } else {
@@ -578,6 +605,14 @@ class _HomePageState extends State<HomePage> {
   Future<void> _submitRating() async {
     final mealId = selectedMeal?['id'];
     if (mealId == null) {
+      return;
+    }
+
+    final allFieldsFilled = ratingTouched.values.every((isFilled) => isFilled);
+    if (!allFieldsFilled) {
+      setState(() {
+        error = 'Compila tutti i campi voto prima di inviare';
+      });
       return;
     }
 
@@ -604,6 +639,7 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         selectedMeal = payload;
         rating = _ratingFromMeal(payload);
+        ratingTouched = _ratingTouchedFromMeal(payload);
       });
       await _loadMeals();
     } else {
@@ -617,10 +653,54 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _toggleVotesSecret(bool votesSecret) async {
+    final mealId = selectedMeal?['id'];
+    if (mealId == null) {
+      return;
+    }
+
+    setState(() {
+      busy = true;
+      error = '';
+    });
+
+    final response = await _sendAuthorized((headers) {
+      return http.patch(
+        Uri.parse('$baseUrl/api/meals/$mealId/votes-secret'),
+        headers: headers,
+        body: jsonEncode({'votesSecret': votesSecret}),
+      );
+    });
+
+    if (response == null) {
+      setState(() => busy = false);
+      return;
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      setState(() {
+        selectedMeal = payload;
+        meals = meals.map((meal) {
+          final map = meal as Map<String, dynamic>;
+          return map['id'] == payload['id'] ? payload : map;
+        }).toList();
+      });
+    } else {
+      setState(() {
+        error = 'Non hai i permessi per modificare i voti segreti';
+      });
+    }
+
+    setState(() {
+      busy = false;
+    });
+  }
+
   Map<String, int> _ratingFromMeal(Map<String, dynamic>? meal) {
     final userRating = meal?['userRating'];
     if (userRating is! Map<String, dynamic>) {
-      return {'location': 0, 'menu': 0, 'service': 0, 'bill': 0, 'special': 0};
+      return Map<String, int>.from(_emptyRatingValues);
     }
 
     return {
@@ -630,6 +710,15 @@ class _HomePageState extends State<HomePage> {
       'bill': (userRating['bill'] as num?)?.toInt() ?? 0,
       'special': (userRating['special'] as num?)?.toInt() ?? 0,
     };
+  }
+
+  Map<String, bool> _ratingTouchedFromMeal(Map<String, dynamic>? meal) {
+    final userRating = meal?['userRating'];
+    if (userRating is! Map<String, dynamic>) {
+      return Map<String, bool>.from(_emptyRatingTouched);
+    }
+
+    return {for (final key in _emptyRatingTouched.keys) key: true};
   }
 
   Future<void> _shareSelectedMealOnWhatsApp() async {
@@ -852,6 +941,10 @@ class _HomePageState extends State<HomePage> {
           decoration: const InputDecoration(labelText: 'Nome locale'),
         ),
         TextField(
+          controller: proposedByController,
+          decoration: const InputDecoration(labelText: 'Proposto da'),
+        ),
+        TextField(
           controller: streetController,
           decoration: const InputDecoration(labelText: 'Via'),
         ),
@@ -862,6 +955,21 @@ class _HomePageState extends State<HomePage> {
         TextField(
           controller: notesController,
           decoration: const InputDecoration(labelText: 'Note'),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Voti segreti'),
+          subtitle: const Text(
+            'Se attivo, ogni partecipante vede solo i propri voti.',
+          ),
+          value: createVotesSecret,
+          onChanged: busy
+              ? null
+              : (value) {
+                  setState(() {
+                    createVotesSecret = value;
+                  });
+                },
         ),
         const SizedBox(height: 8),
         FilledButton(
@@ -886,12 +994,13 @@ class _HomePageState extends State<HomePage> {
           return ListTile(
             title: Text(map['name']?.toString() ?? '-'),
             subtitle: Text(
-              'Codice: ${map['shareCode']} | Media: ${map['summary']?['overall'] ?? 0}',
+              'Proposto da: ${map['proposedBy'] ?? '-'} | Codice: ${map['shareCode']} | Voti segreti: ${map['votesSecret'] == true ? 'Si' : 'No'} | Media: ${map['summary']?['overall'] ?? 0}',
             ),
             onTap: () {
               setState(() {
                 selectedMeal = map;
                 rating = _ratingFromMeal(map);
+                ratingTouched = _ratingTouchedFromMeal(map);
               });
             },
           );
@@ -899,7 +1008,23 @@ class _HomePageState extends State<HomePage> {
         const Divider(height: 24),
         if (selectedMeal != null) ...[
           Text('Pasto selezionato: ${selectedMeal!['name']}'),
+          Text('Proposto da: ${selectedMeal!['proposedBy'] ?? '-'}'),
+          Text(
+            'Voti segreti: ${selectedMeal!['votesSecret'] == true ? 'Attivi' : 'Disattivi'}',
+          ),
           Text('Codice: ${selectedMeal!['shareCode']}'),
+          if (selectedMeal?['canToggleVotesSecret'] == true)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Voti segreti'),
+              subtitle: const Text('Visibilita voti degli altri partecipanti'),
+              value: selectedMeal?['votesSecret'] == true,
+              onChanged: busy
+                  ? null
+                  : (value) {
+                      _toggleVotesSecret(value);
+                    },
+            ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _shareSelectedMealOnWhatsApp,
@@ -945,6 +1070,12 @@ class _HomePageState extends State<HomePage> {
               'Scopri classifica finale (${summary?['votes'] ?? 0} votanti)',
             ),
             children: [
+              if (selectedMeal?['votesSecret'] == true)
+                const ListTile(
+                  leading: Icon(Icons.lock_outline),
+                  title: Text('Modalita voti segreti attiva'),
+                  subtitle: Text('Sono visibili solo i tuoi voti.'),
+                ),
               if (leaderboard != null && leaderboard.isNotEmpty)
                 ...leaderboard.map((entry) {
                   final p = entry as Map<String, dynamic>;
@@ -954,28 +1085,45 @@ class _HomePageState extends State<HomePage> {
                     subtitle: Text(
                       'Location ${p['location']}  Menu ${p['menu']}  Servizio ${p['service']}  Conto ${p['bill']}  Special ${p['special']}',
                     ),
-                    trailing: Text((p['overall'] ?? 0).toString()),
                   );
                 }),
+              if (summary != null)
+                ListTile(
+                  leading: const Icon(Icons.summarize_outlined),
+                  title: const Text('Medie categoria'),
+                  subtitle: Text(
+                    'Location ${summary['location']}  Menu ${summary['menu']}  Servizio ${summary['service']}  Conto ${summary['bill']}  Special ${summary['special']}',
+                  ),
+                  trailing: Text('Totale ${summary['overall']}'),
+                ),
             ],
           ),
           const SizedBox(height: 8),
           ...rating.keys.map((field) {
+            final hasValue = ratingTouched[field] ?? false;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${_categoryLabels[field] ?? field}: ${rating[field]}'),
+                  Text(
+                    '${_categoryLabels[field] ?? field}: ${hasValue ? rating[field] : '-'}',
+                  ),
                   Slider(
                     value: (rating[field] ?? 0).toDouble(),
                     min: 0,
                     max: 10,
                     divisions: 10,
-                    label: (rating[field] ?? 0).toString(),
+                    label: hasValue ? (rating[field] ?? 0).toString() : '-',
+                    onChangeStart: (_) {
+                      setState(() {
+                        ratingTouched[field] = true;
+                      });
+                    },
                     onChanged: (value) {
                       setState(() {
                         rating[field] = value.round();
+                        ratingTouched[field] = true;
                       });
                     },
                   ),
@@ -1004,6 +1152,7 @@ class _HomePageState extends State<HomePage> {
       runSpacing: 8,
       children: rating.entries.map((entry) {
         final label = _categoryLabels[entry.key] ?? entry.key;
+        final hasValue = ratingTouched[entry.key] ?? false;
 
         return Container(
           width: 110,
@@ -1022,7 +1171,7 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 2),
               Text(
-                '${entry.value}',
+                hasValue ? '${entry.value}' : '-',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,

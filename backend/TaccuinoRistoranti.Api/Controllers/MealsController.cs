@@ -32,16 +32,24 @@ public class MealsController(ApplicationDbContext dbContext) : ControllerBase
     public async Task<ActionResult<MealResponse>> CreateMeal(CreateMealRequest request)
     {
         var currentUserId = GetCurrentUserId();
+        var proposedBy = request.ProposedBy.Trim();
+        if (string.IsNullOrWhiteSpace(proposedBy))
+        {
+            return BadRequest("Il campo 'Proposto da' e obbligatorio.");
+        }
+
         var shareCode = await GenerateUniqueShareCode();
 
         var meal = new Meal
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
+            ProposedBy = proposedBy,
             Street = request.Street,
             City = request.City,
             Notes = request.Notes,
             MealType = request.MealType,
+            VotesSecret = request.VotesSecret,
             ShareCode = shareCode,
             CreatedAtUtc = DateTime.UtcNow,
             CreatedByUserId = currentUserId
@@ -85,6 +93,32 @@ public class MealsController(ApplicationDbContext dbContext) : ControllerBase
         {
             return NotFound("Codice pasto non valido.");
         }
+
+        return Ok(ToResponse(meal, currentUserId));
+    }
+
+    [HttpPatch("{mealId:guid}/votes-secret")]
+    public async Task<ActionResult<MealResponse>> UpdateVotesSecret(Guid mealId, UpdateVotesSecretRequest request)
+    {
+        var currentUserId = GetCurrentUserId();
+
+        var meal = await dbContext.Meals
+            .Include(m => m.Ratings)
+            .ThenInclude(r => r.User)
+            .FirstOrDefaultAsync(m => m.Id == mealId);
+
+        if (meal is null)
+        {
+            return NotFound();
+        }
+
+        if (meal.CreatedByUserId != currentUserId)
+        {
+            return Forbid();
+        }
+
+        meal.VotesSecret = request.VotesSecret;
+        await dbContext.SaveChangesAsync();
 
         return Ok(ToResponse(meal, currentUserId));
     }
@@ -207,8 +241,14 @@ public class MealsController(ApplicationDbContext dbContext) : ControllerBase
                 userRatingEntity.Special,
                 userRatingEntity.CreatedAtUtc);
 
-        var leaderboard = ratings
-            .Select(r => new ParticipantScoreResponse(
+        var visibleRatings = meal.VotesSecret
+            ? ratings.Where(r => r.UserId == currentUserId).ToList()
+            : ratings;
+
+        var leaderboard = visibleRatings
+            .OrderByDescending(r => (r.Location + r.Menu + r.Service + r.Bill + r.Special) / 5.0)
+            .ThenBy(r => r.CreatedAtUtc)
+            .Select((r, index) => new ParticipantScoreResponse(
                 r.UserId,
                 r.User?.Email ?? "utente-sconosciuto",
                 r.Location,
@@ -216,17 +256,14 @@ public class MealsController(ApplicationDbContext dbContext) : ControllerBase
                 r.Service,
                 r.Bill,
                 r.Special,
-                Math.Round((r.Location + r.Menu + r.Service + r.Bill + r.Special) / 5.0, 2),
-                0,
+                index + 1,
                 r.CreatedAtUtc))
-            .OrderByDescending(x => x.Overall)
-            .ThenBy(x => x.CreatedAtUtc)
-            .Select((x, index) => x with { Position = index + 1 })
             .ToList();
 
         return new MealResponse(
             meal.Id,
             meal.Name,
+            meal.ProposedBy,
             meal.Street,
             meal.City,
             meal.Notes,
@@ -234,6 +271,8 @@ public class MealsController(ApplicationDbContext dbContext) : ControllerBase
             meal.ShareCode,
             meal.CreatedAtUtc,
             meal.CreatedByUserId,
+            meal.VotesSecret,
+            meal.CreatedByUserId == currentUserId,
             ratings.Any(r => r.UserId == currentUserId),
             userRating,
             summary,

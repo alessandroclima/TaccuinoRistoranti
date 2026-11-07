@@ -15,6 +15,14 @@ type RatingInput = {
   special: number;
 };
 
+type RatingTouched = {
+  location: boolean;
+  menu: boolean;
+  service: boolean;
+  bill: boolean;
+  special: boolean;
+};
+
 type RatingSummary = {
   location: number;
   menu: number;
@@ -33,7 +41,6 @@ type ParticipantScore = {
   service: number;
   bill: number;
   special: number;
-  overall: number;
   position: number;
   createdAtUtc: string;
 };
@@ -50,6 +57,7 @@ type UserRating = {
 type Meal = {
   id: string;
   name: string;
+  proposedBy: string;
   street: string;
   city: string;
   notes: string | null;
@@ -57,6 +65,8 @@ type Meal = {
   shareCode: string;
   createdAtUtc: string;
   createdBy: string;
+  votesSecret: boolean;
+  canToggleVotesSecret: boolean;
   hasUserRated: boolean;
   userRating: UserRating | null;
   summary: RatingSummary;
@@ -83,6 +93,14 @@ const emptyRating: RatingInput = {
   service: 0,
   bill: 0,
   special: 0,
+};
+
+const emptyRatingTouched: RatingTouched = {
+  location: false,
+  menu: false,
+  service: false,
+  bill: false,
+  special: false,
 };
 
 const ratingFields: Array<keyof RatingInput> = [
@@ -122,6 +140,20 @@ const ratingFromMeal = (meal: Meal | null): RatingInput => {
   };
 };
 
+const ratingTouchedFromMeal = (meal: Meal | null): RatingTouched => {
+  if (!meal?.userRating) {
+    return emptyRatingTouched;
+  }
+
+  return {
+    location: true,
+    menu: true,
+    service: true,
+    bill: true,
+    special: true,
+  };
+};
+
 function App() {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem(storage.token),
@@ -147,12 +179,16 @@ function App() {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null);
   const [newMeal, setNewMeal] = useState({
     name: "",
+    proposedBy: "",
     street: "",
     city: "",
     notes: "",
     mealType: 0 as MealType,
+    votesSecret: false,
   });
   const [rating, setRating] = useState<RatingInput>(emptyRating);
+  const [ratingTouched, setRatingTouched] =
+    useState<RatingTouched>(emptyRatingTouched);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [infoMessage, setInfoMessage] = useState("");
@@ -197,6 +233,7 @@ function App() {
     setMeals([]);
     setSelectedMeal(null);
     setRating(emptyRating);
+    setRatingTouched(emptyRatingTouched);
   };
 
   const refreshSession = async () => {
@@ -247,6 +284,7 @@ function App() {
     const maybeUpdated = incomingMeals.find((m) => m.id === selectedMeal.id);
     setSelectedMeal(maybeUpdated ?? null);
     setRating(ratingFromMeal(maybeUpdated ?? null));
+    setRatingTouched(ratingTouchedFromMeal(maybeUpdated ?? null));
   };
 
   useEffect(() => {
@@ -254,6 +292,7 @@ function App() {
       setMeals([]);
       setSelectedMeal(null);
       setRating(emptyRating);
+      setRatingTouched(emptyRatingTouched);
       return;
     }
 
@@ -448,7 +487,16 @@ function App() {
       setMeals((current) => [response.data, ...current]);
       setSelectedMeal(response.data);
       setRating(ratingFromMeal(response.data));
-      setNewMeal({ name: "", street: "", city: "", notes: "", mealType: 0 });
+      setRatingTouched(ratingTouchedFromMeal(response.data));
+      setNewMeal({
+        name: "",
+        proposedBy: "",
+        street: "",
+        city: "",
+        notes: "",
+        mealType: 0,
+        votesSecret: false,
+      });
     } catch {
       setError("Creazione pasto fallita.");
     } finally {
@@ -474,6 +522,7 @@ function App() {
       );
       setSelectedMeal(response.data);
       setRating(ratingFromMeal(response.data));
+      setRatingTouched(ratingTouchedFromMeal(response.data));
       setJoinCode("");
       await loadMeals();
     } catch {
@@ -486,6 +535,12 @@ function App() {
   const submitRating = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedMeal) {
+      return;
+    }
+
+    const allFieldsFilled = ratingFields.every((field) => ratingTouched[field]);
+    if (!allFieldsFilled) {
+      setError("Compila tutti i campi voto prima di inviare.");
       return;
     }
 
@@ -506,6 +561,7 @@ function App() {
       );
       setSelectedMeal(response.data);
       setRating(ratingFromMeal(response.data));
+      setRatingTouched(ratingTouchedFromMeal(response.data));
       await loadMeals();
     } catch {
       setError("Votazione non valida.");
@@ -514,9 +570,49 @@ function App() {
     }
   };
 
+  const updateVotesSecret = async (votesSecret: boolean) => {
+    if (!selectedMeal) {
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      const authHeader = await getAuthHeader();
+      if (!authHeader) {
+        return;
+      }
+
+      const response = await api.patch<Meal>(
+        `/api/meals/${selectedMeal.id}/votes-secret`,
+        { votesSecret },
+        {
+          headers: authHeader,
+        },
+      );
+
+      setSelectedMeal(response.data);
+      setMeals((current) =>
+        current.map((meal) =>
+          meal.id === response.data.id ? response.data : meal,
+        ),
+      );
+    } catch (error) {
+      setError(
+        extractApiError(
+          error,
+          "Non hai i permessi per modificare il flag voti segreti.",
+        ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const selectMeal = (meal: Meal) => {
     setSelectedMeal(meal);
     setRating(ratingFromMeal(meal));
+    setRatingTouched(ratingTouchedFromMeal(meal));
   };
 
   const shareOnWhatsapp = (meal: Meal) => {
@@ -713,6 +809,16 @@ function App() {
                 />
               </label>
               <label>
+                Proposto da
+                <input
+                  value={newMeal.proposedBy}
+                  onChange={(event) =>
+                    setNewMeal({ ...newMeal, proposedBy: event.target.value })
+                  }
+                  required
+                />
+              </label>
+              <label>
                 Via
                 <input
                   value={newMeal.street}
@@ -746,6 +852,19 @@ function App() {
                   <option value={0}>Pranzo</option>
                   <option value={1}>Cena</option>
                 </select>
+              </label>
+              <label className="span2">
+                <input
+                  type="checkbox"
+                  checked={newMeal.votesSecret}
+                  onChange={(event) =>
+                    setNewMeal({
+                      ...newMeal,
+                      votesSecret: event.target.checked,
+                    })
+                  }
+                />{" "}
+                Voti segreti
               </label>
               <label className="span2">
                 Note
@@ -795,10 +914,12 @@ function App() {
                     onClick={() => selectMeal(meal)}
                   >
                     <strong>{meal.name}</strong>
+                    <span>Proposto da: {meal.proposedBy}</span>
                     <span>{meal.city}</span>
                     <span>
                       Codice <b>{meal.shareCode}</b>
                     </span>
+                    <span>Voti segreti: {meal.votesSecret ? "Si" : "No"}</span>
                     <span>Media: {meal.summary.overall.toFixed(2)}</span>
                     <span>Votanti: {meal.summary.votes}</span>
                   </button>
@@ -817,10 +938,29 @@ function App() {
                     <strong>{selectedMeal.name}</strong> - {selectedMeal.street}
                     , {selectedMeal.city}
                   </p>
+                  <p>Proposto da: {selectedMeal.proposedBy}</p>
                   <p>
                     Tipo: {selectedMeal.mealType === 0 ? "Pranzo" : "Cena"} |
                     Codice: <b>{selectedMeal.shareCode}</b>
                   </p>
+                  <p>
+                    Voti segreti:{" "}
+                    {selectedMeal.votesSecret ? "Attivi" : "Disattivi"}
+                  </p>
+
+                  {selectedMeal.canToggleVotesSecret ? (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={selectedMeal.votesSecret}
+                        onChange={(event) =>
+                          void updateVotesSecret(event.target.checked)
+                        }
+                        disabled={busy}
+                      />{" "}
+                      Voti segreti
+                    </label>
+                  ) : null}
 
                   <div className="share-row">
                     <button
@@ -846,7 +986,9 @@ function App() {
                       {ratingFields.map((field) => (
                         <div key={field} className="my-score-item">
                           <span>{ratingFieldLabels[field]}</span>
-                          <strong>{rating[field]}</strong>
+                          <strong>
+                            {ratingTouched[field] ? rating[field] : "-"}
+                          </strong>
                         </div>
                       ))}
                     </div>
@@ -859,13 +1001,33 @@ function App() {
                             type="number"
                             min={0}
                             max={10}
-                            value={rating[field]}
-                            onChange={(event) =>
+                            step={1}
+                            placeholder="0"
+                            value={ratingTouched[field] ? rating[field] : ""}
+                            onChange={(event) => {
+                              const nextRawValue = event.target.value;
+
+                              if (nextRawValue === "") {
+                                setRating((current) => ({
+                                  ...current,
+                                  [field]: 0,
+                                }));
+                                setRatingTouched((current) => ({
+                                  ...current,
+                                  [field]: false,
+                                }));
+                                return;
+                              }
+
                               setRating((current) => ({
                                 ...current,
-                                [field]: Number(event.target.value),
-                              }))
-                            }
+                                [field]: Number(nextRawValue),
+                              }));
+                              setRatingTouched((current) => ({
+                                ...current,
+                                [field]: true,
+                              }));
+                            }}
                             required
                           />
                         </label>
@@ -883,6 +1045,12 @@ function App() {
                       Scopri classifica finale ({selectedMeal.summary.votes}{" "}
                       votanti)
                     </summary>
+                    {selectedMeal.votesSecret ? (
+                      <p className="muted">
+                        Modalita voti segreti attiva: puoi vedere solo i tuoi
+                        voti.
+                      </p>
+                    ) : null}
                     <p className="muted">
                       Media complessiva:{" "}
                       {selectedMeal.summary.overall.toFixed(2)}
@@ -897,7 +1065,7 @@ function App() {
                           <th>Servizio</th>
                           <th>Conto</th>
                           <th>Special</th>
-                          <th>Media</th>
+                          <th>Media categorie</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -910,9 +1078,44 @@ function App() {
                             <td>{entry.service}</td>
                             <td>{entry.bill}</td>
                             <td>{entry.special}</td>
-                            <td>{entry.overall.toFixed(2)}</td>
+                            <td>-</td>
                           </tr>
                         ))}
+                        <tr>
+                          <td colSpan={2}>
+                            <strong>Medie categoria</strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.location.toFixed(2)}
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.menu.toFixed(2)}
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.service.toFixed(2)}
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.bill.toFixed(2)}
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.special.toFixed(2)}
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>
+                              {selectedMeal.summary.overall.toFixed(2)}
+                            </strong>
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
                   </details>

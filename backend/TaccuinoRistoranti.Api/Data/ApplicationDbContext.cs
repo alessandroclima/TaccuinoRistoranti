@@ -19,9 +19,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         builder.Entity<Meal>(entity =>
         {
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.ProposedBy).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Street).HasMaxLength(200).IsRequired();
             entity.Property(x => x.City).HasMaxLength(100).IsRequired();
             entity.Property(x => x.Notes).HasMaxLength(1000);
+            entity.Property(x => x.VotesSecret).HasDefaultValue(false).IsRequired();
             entity.Property(x => x.ShareCode).HasMaxLength(12).IsRequired();
             entity.HasIndex(x => x.ShareCode).IsUnique();
 
